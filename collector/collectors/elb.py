@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from agent.analyzer.database_rules_common import profile
 from collector.collectors.base import BaseCollector
 
 
@@ -12,6 +11,38 @@ IDLE_REQUESTS_30D_THRESHOLD = 0
 LOW_REQUESTS_30D_THRESHOLD = 100
 LOW_PROCESSED_GB_30D_THRESHOLD = 0.1
 
+def profile(
+    *,
+    service: str,
+    classification: str,
+    confidence: str = "LOW",
+    risk: str = "MEDIUM",
+    evidence: list[str] | None = None,
+    blockers: list[str] | None = None,
+    warnings: list[str] | None = None,
+    safe_actions: list[str] | None = None,
+    unsafe_actions: list[str] | None = None,
+    confirmed_monthly_savings: float = 0.0,
+    candidate_monthly_savings: float = 0.0,
+    llm_guidance: str = "",
+    **extra: Any,
+) -> dict:
+    out = {
+        "service": service,
+        "classification": classification,
+        "confidence": confidence,
+        "risk": risk,
+        "confirmed_monthly_savings": round(float(confirmed_monthly_savings or 0), 2),
+        "candidate_monthly_savings": round(float(candidate_monthly_savings or 0), 2),
+        "evidence": evidence or [],
+        "blockers": blockers or [],
+        "warnings": warnings or [],
+        "safe_actions": safe_actions or [],
+        "unsafe_actions": unsafe_actions or [],
+        "llm_guidance": llm_guidance,
+    }
+    out.update({k: v for k, v in extra.items() if v is not None})
+    return out
 
 class ELBCollector(BaseCollector):
     name = "elb"
