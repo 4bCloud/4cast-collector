@@ -42,11 +42,12 @@ class ResultSubmitter:
         persist_deadletter: bool = True,
     ) -> None:
         deadletter_key = f"deadletter:result:{job_id}"
+        normalized = normalize_worker_result(result)
         if persist_deadletter:
             await self.redis.setex(
                 deadletter_key,
                 RESULT_DEADLETTER_TTL_SECONDS,
-                orjson.dumps(result),
+                orjson.dumps(normalized),
             )
 
         async for attempt in AsyncRetrying(
@@ -56,7 +57,7 @@ class ResultSubmitter:
             reraise=True,
         ):
             with attempt:
-                await self.api.submit_worker_result(job_id, result)
+                await self.api.submit_worker_result(job_id, normalized)
 
         await self.redis.delete(deadletter_key)
 
@@ -73,9 +74,35 @@ class ResultSubmitter:
                 result = orjson.loads(payload)
                 await self.submit(job_id, result, persist_deadletter=False)
                 replayed += 1
+            except httpx.HTTPStatusError as exc:
+                failed += 1
+                body = exc.response.text[:500]
+                log.warning(
+                    "Dead-letter replay failed for job %s: %s %s",
+                    job_id,
+                    exc,
+                    body,
+                )
+                if exc.response.status_code in {404, 409}:
+                    await self.redis.delete(key)
             except Exception as exc:
                 failed += 1
                 log.warning("Dead-letter replay failed for job %s: %s", job_id, exc)
         if replayed or failed:
             log.info("Dead-letter replay finished: replayed=%s failed=%s", replayed, failed)
         return replayed, failed
+
+
+def normalize_worker_result(result: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(result)
+    errors = normalized.get("errors")
+    if not isinstance(errors, list):
+        return normalized
+    fixed: list[dict[str, Any]] = []
+    for item in errors:
+        if isinstance(item, str):
+            fixed.append({"message": item, "scope": "worker"})
+        elif isinstance(item, dict):
+            fixed.append(item)
+    normalized["errors"] = fixed
+    return normalized

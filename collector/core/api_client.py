@@ -47,9 +47,23 @@ class ApiClient:
 
 def build_failed_result(job: dict[str, Any], exc: Exception) -> dict[str, Any]:
     from datetime import datetime, UTC
+
     return {
+        "schema_version": "2026-06-11",
+        "agent": "collector",
+        "tenant_id": job.get("tenant_id"),
         "scan_id": job.get("scan_id"),
         "status": "failed",
-        "errors": [f"{type(exc).__name__}: {exc}"],
         "finished_at": datetime.now(UTC).isoformat(),
+        "collection_coverage": {},
+        "artifacts": [],
+        "errors": [
+            {
+                "type": type(exc).__name__,
+                "message": str(exc),
+                "job_id": job.get("job_id"),
+                "scan_id": job.get("scan_id"),
+                "scope": "collect",
+            }
+        ],
     }
