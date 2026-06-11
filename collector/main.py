@@ -15,6 +15,8 @@ from collector.core.api_client import ApiClient, build_failed_result
 from collector.core.postgres_queue import PostgresJobQueue, ClaimedPostgresJob
 from collector.core.progress import publish_scan_progress
 from collector.core.contract import build_worker_scan_result
+from collector.core.result_submit import ResultSubmitter
+from collector.core.health import serve_health
 from collector.store.evidence import write_local_evidence, write_evidence_artifact
 from collector.auth.assume_role import AssumeRoleAuth
 from collector.knowledge.pricing import AWSPricingEngine
@@ -29,18 +31,20 @@ class CollectorWorker:
         self.worker_id = socket.gethostname()
         self.redis = Redis.from_url(settings.redis_url)
         self.api = ApiClient(worker_id=self.worker_id)
+        self.result_submitter = ResultSubmitter(self.api, self.redis)
         self.pg_queue = PostgresJobQueue(
             settings.effective_postgres_jobs_database_url,
             stages=settings.worker_stage_list,
             claimant=self.worker_id,
         )
         self._shutting_down = False
-        self._active_tasks = set()
+        self._active_tasks: set[asyncio.Task] = set()
 
     async def run(self):
         self._install_signal_handlers()
+        await self.result_submitter.replay_deadletters()
         console.print(f"Collector worker ready. ID={self.worker_id} (Postgres Queue)")
-        
+
         while not self._shutting_down:
             try:
                 job = await self.pg_queue.claim_next()
@@ -52,7 +56,7 @@ class CollectorWorker:
             if job is None:
                 await asyncio.sleep(settings.worker_idle_sleep_seconds)
                 continue
-            
+
             task = asyncio.create_task(self._run_job(job))
             self._active_tasks.add(task)
             task.add_done_callback(self._active_tasks.discard)
@@ -60,16 +64,30 @@ class CollectorWorker:
         if self._active_tasks:
             console.print(f"Draining {len(self._active_tasks)} tasks...")
             await asyncio.gather(*self._active_tasks, return_exceptions=True)
-            
+
         await self.close()
+
+    async def check_ready(self) -> tuple[bool, str]:
+        if self._shutting_down:
+            return False, "shutting down"
+        try:
+            await self.redis.ping()
+        except Exception as exc:
+            log.warning("Collector Redis readiness check failed: %s", exc)
+            return False, "redis unavailable"
+        try:
+            await self.pg_queue.ping()
+        except Exception as exc:
+            log.warning("Collector Postgres readiness check failed: %s", exc)
+            return False, "postgres queue unavailable"
+        return True, "ok"
 
     async def _run_job(self, claimed: ClaimedPostgresJob):
         job_id = claimed.payload.get("job_id") or claimed.payload.get("scan_job_id")
         await self.pg_queue.mark_running(claimed.db_job_id)
-        
-        # Simple background heartbeat
+
         heartbeat = asyncio.create_task(self._do_heartbeat(claimed.db_job_id))
-        
+
         try:
             success = await self._process_job(str(job_id), claimed.payload)
             if success:
@@ -87,23 +105,23 @@ class CollectorWorker:
             await asyncio.sleep(settings.worker_heartbeat_interval_seconds)
             try:
                 await self.pg_queue.heartbeat(db_job_id)
-            except Exception: pass
+            except Exception:
+                pass
 
     async def _process_job(self, job_id: str, job: dict[str, Any]) -> bool:
         started_at = time.time()
         tenant_id = str(job.get("tenant_id", "unknown"))
         scan_id = str(job.get("scan_id", "unknown"))
-        
+
         console.print(f"[cyan]→[/cyan] Starting collection job {job_id} (tenant={tenant_id})")
-        
+
         try:
             await self.api.update_status(job_id, "running")
             await self._publish_progress(job, job_id, "running", message="Discovering accounts...")
-            
-            # 1. AUTH & DISCOVERY
+
             auth_info = await self.api.fetch_job_auth(job_id)
             aws_auth = auth_info.get("aws", {})
-            
+
             auth_engine = AssumeRoleAuth(
                 role_arn=aws_auth.get("role_arn", ""),
                 external_id=aws_auth.get("external_id", ""),
@@ -113,50 +131,50 @@ class CollectorWorker:
             )
             accounts = await auth_engine.get_accounts()
             if not accounts:
-                raise RuntimeError(f"Could not assume role or discover accounts for {aws_auth.get('role_arn')}")
+                raise RuntimeError(
+                    f"Could not assume role or discover accounts for {aws_auth.get('role_arn')}"
+                )
 
-            # 2. RAW COLLECTION
-            await self._publish_progress(job, job_id, "running", message=f"Collecting from {len(accounts)} account(s)...")
+            await self._publish_progress(
+                job, job_id, "running", message=f"Collecting from {len(accounts)} account(s)..."
+            )
             orchestrator = CollectionOrchestrator(accounts, regions=job.get("regions"))
             collection = await orchestrator.run()
-            
-            # 3. PRICING & ENRICHMENT
+
             await self._publish_progress(job, job_id, "running", message="Fetching AWS pricing...")
-            # Use management account session for pricing (Global Service)
-            pricing_engine = AWSPricingEngine() 
+            pricing_engine = AWSPricingEngine()
             pricing = await pricing_engine.fetch_for_collection(collection)
             collection["aws_pricing"] = pricing
-            
+
             await self._publish_progress(job, job_id, "running", message="Building cost attribution...")
             collection["cost_attribution"] = build_cost_attribution(collection)
             collection["pricing_coverage"] = build_pricing_coverage_audit(collection)
-            
-            # 4. STORE ARTIFACT
+
             evidence_artifact = await write_evidence_artifact(
                 tenant_id=tenant_id,
                 scan_id=scan_id,
-                collection=collection
+                collection=collection,
             )
-            
+
             result = build_worker_scan_result(
                 scan_id=scan_id,
                 collection=collection,
                 started_at=started_at,
                 finished_at=time.time(),
                 tenant_id=tenant_id,
-                status="succeeded"
+                status="succeeded",
             )
             if evidence_artifact:
                 result["artifacts"].append(evidence_artifact)
-                
-            await self.api.submit_worker_result(job_id, result)
+
+            await self.result_submitter.submit(job_id, result)
             await self._publish_progress(job, job_id, "succeeded")
             console.print(f"[green]✓[/green] Completed collection job {job_id}")
             return True
-            
+
         except Exception as exc:
             console.print(f"[red]✗[/red] Job {job_id} failed: {exc}")
-            await self.api.submit_worker_result(job_id, build_failed_result(job, exc))
+            await self.result_submitter.submit(job_id, build_failed_result(job, exc))
             await self._publish_progress(job, job_id, "failed", message=str(exc))
             return False
 
@@ -169,14 +187,19 @@ class CollectorWorker:
                 job_id=job_id,
                 stage="collect",
                 status=status,
-                message=message
+                message=message,
             )
-        except Exception as exc: log.debug("Progress publish failed: %s", exc)
+        except Exception as exc:
+            log.debug("Progress publish failed: %s", exc)
 
     def _install_signal_handlers(self):
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, lambda: setattr(self, "_shutting_down", True))
+            loop.add_signal_handler(sig, self._request_shutdown)
+
+    def _request_shutdown(self):
+        console.print("[yellow]Shutdown signal — draining active jobs...[/yellow]")
+        self._shutting_down = True
 
     async def close(self):
         await self.api.close()
@@ -190,17 +213,29 @@ async def main():
     parser.add_argument("--role-arn")
     parser.add_argument("--external-id")
     parser.add_argument("--output", default="evidence.json.zst")
-    
+
     args = parser.parse_args()
-    
+
     if args.worker or settings.worker_mode:
         worker = CollectorWorker()
-        await worker.run()
+        try:
+            await asyncio.gather(
+                worker.run(),
+                serve_health(check_ready=worker.check_ready),
+            )
+        finally:
+            await worker.close()
     else:
-        # CLI mode logic...
-        if not args.account_id: parser.error("--account-id is required")
-        # Simplified CLI auth
-        accounts = [{"id": args.account_id, "name": args.account_id, "role_arn": args.role_arn, "external_id": args.external_id}]
+        if not args.account_id:
+            parser.error("--account-id is required")
+        accounts = [
+            {
+                "id": args.account_id,
+                "name": args.account_id,
+                "role_arn": args.role_arn,
+                "external_id": args.external_id,
+            }
+        ]
         orchestrator = CollectionOrchestrator(accounts)
         result = await orchestrator.run()
         write_local_evidence(result, args.output)

@@ -1,6 +1,15 @@
 # 4Cast Collector
 
-Evidence collector for the 4Cast platform. Optimized for massive parallel metadata extraction from AWS.
+Evidence collector for the 4Cast platform. Optimized for massive parallel metadata
+extraction from AWS.
+
+**Role in the platform:** owns `stage=collect` only. Writes the evidence lake;
+does not run rules, LLM or reports. See `docs/target-architecture.md` and
+`docs/architecture-improvement-execution-plan.md` (ARCH-037).
+
+**Relationship with `4cast-agent-finops`:** finops still embeds collectors and can
+claim `collect` until ARCH-037 E2E completes. Target: finops becomes
+`analyze.finops` + `report` only; this repo is the single AWS evidence source.
 
 ## Modes
 

@@ -47,7 +47,7 @@ class PostgresJobQueue:
         async with self._pool.acquire() as connection:
             async with connection.transaction():
                 row = await connection.fetchrow(
-                    \"\"\"
+                    """
                     SELECT id, payload
                     FROM jobs
                     WHERE stage = ANY($1::text[])
@@ -56,13 +56,13 @@ class PostgresJobQueue:
                     ORDER BY priority, created_at
                     FOR UPDATE SKIP LOCKED
                     LIMIT 1
-                    \"\"\",
+                    """,
                     self.stages,
                 )
                 if row is None:
                     return None
                 updated = await connection.fetchrow(
-                    \"\"\"
+                    """
                     UPDATE jobs
                     SET status = 'claimed',
                         claimed_by = $1,
@@ -71,7 +71,7 @@ class PostgresJobQueue:
                         updated_at = now()
                     WHERE id = $2
                     RETURNING id, payload
-                    \"\"\",
+                    """,
                     self.claimant,
                     row["id"],
                 )
@@ -86,13 +86,13 @@ class PostgresJobQueue:
         await self.connect()
         async with self._pool.acquire() as connection:
             await connection.execute(
-                \"\"\"
+                """
                 UPDATE jobs
                 SET heartbeat_at = now(), updated_at = now()
                 WHERE id = $1
                   AND claimed_by = $2
                   AND status IN ('claimed', 'running')
-                \"\"\",
+                """,
                 db_job_id,
                 self.claimant,
             )
@@ -101,7 +101,7 @@ class PostgresJobQueue:
         await self.connect()
         async with self._pool.acquire() as connection:
             await connection.execute(
-                \"\"\"
+                """
                 UPDATE jobs
                 SET status = 'succeeded',
                     heartbeat_at = now(),
@@ -110,7 +110,7 @@ class PostgresJobQueue:
                 WHERE id = $1
                   AND claimed_by = $2
                   AND status IN ('claimed', 'running')
-                \"\"\",
+                """,
                 db_job_id,
                 self.claimant,
             )
@@ -119,7 +119,7 @@ class PostgresJobQueue:
         await self.connect()
         async with self._pool.acquire() as connection:
             await connection.execute(
-                \"\"\"
+                """
                 UPDATE jobs
                 SET attempts = attempts + 1,
                     last_error = $3,
@@ -142,7 +142,7 @@ class PostgresJobQueue:
                 WHERE id = $1
                   AND claimed_by = $2
                   AND status IN ('claimed', 'running')
-                \"\"\",
+                """,
                 db_job_id,
                 self.claimant,
                 error[:4000],
@@ -153,13 +153,13 @@ class PostgresJobQueue:
         await self.connect()
         async with self._pool.acquire() as connection:
             await connection.execute(
-                \"\"\"
+                """
                 UPDATE jobs
                 SET status = $3, heartbeat_at = now(), updated_at = now()
                 WHERE id = $1
                   AND claimed_by = $2
                   AND status IN ('claimed', 'running')
-                \"\"\",
+                """,
                 db_job_id,
                 self.claimant,
                 status,

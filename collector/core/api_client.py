@@ -29,17 +29,19 @@ class ApiClient:
         response.raise_for_status()
         return response.json()
 
-    async def update_status(self, job_id: str, status: str) -> None:
+    async def update_status(self, job_id: str, status: str, message: str | None = None) -> None:
         response = await self._client.patch(
-            f"/internal/scan-jobs/{job_id}",
-            json={"status": status},
+            f"/api/v1/scan-jobs/{job_id}",
+            json={"status": status, "message": message},
+            timeout=30.0,
         )
         response.raise_for_status()
 
     async def submit_worker_result(self, job_id: str, result: dict[str, Any]) -> None:
         response = await self._client.put(
-            f"/internal/scan-jobs/{job_id}/worker-result",
+            f"/api/v1/scan-jobs/{job_id}/worker-result",
             json=result,
+            timeout=60.0,
         )
         response.raise_for_status()
 

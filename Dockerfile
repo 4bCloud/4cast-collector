@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends     build-essen
 
 # Install virtual environment
 RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:/home/ferraz/.local/share/zed/node/cache/_npx/b01c98eaff59b9fc/node_modules/.bin:/media/ferraz/BACKUP/files/Personal/github/4CastProject/node_modules/.bin:/media/ferraz/BACKUP/files/Personal/github/node_modules/.bin:/media/ferraz/BACKUP/files/Personal/node_modules/.bin:/media/ferraz/BACKUP/files/node_modules/.bin:/media/ferraz/BACKUP/node_modules/.bin:/media/ferraz/node_modules/.bin:/media/node_modules/.bin:/node_modules/.bin:/usr/share/nodejs/@npmcli/run-script/lib/node-gyp-bin:/usr/bin:/home/ferraz/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/ferraz/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin"
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Install dependencies
 COPY pyproject.toml README.md ./
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends     ca-certific
 RUN mkdir -p /opt/4cast/bin     && curl -fsSL "https://rolesanywhere.amazonaws.com/releases/${AWS_SIGNING_HELPER_VERSION}/X86_64/Linux/aws_signing_helper" -o /opt/4cast/bin/aws_signing_helper     && chmod 0755 /opt/4cast/bin/aws_signing_helper
 
 COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:/home/ferraz/.local/share/zed/node/cache/_npx/b01c98eaff59b9fc/node_modules/.bin:/media/ferraz/BACKUP/files/Personal/github/4CastProject/node_modules/.bin:/media/ferraz/BACKUP/files/Personal/github/node_modules/.bin:/media/ferraz/BACKUP/files/Personal/node_modules/.bin:/media/ferraz/BACKUP/files/node_modules/.bin:/media/ferraz/BACKUP/node_modules/.bin:/media/ferraz/node_modules/.bin:/media/node_modules/.bin:/node_modules/.bin:/usr/share/nodejs/@npmcli/run-script/lib/node-gyp-bin:/usr/bin:/home/ferraz/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/ferraz/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin"
+ENV PATH="/opt/venv/bin:$PATH"
 
 RUN groupadd --gid 1001 fourcast     && useradd --uid 1001 --gid fourcast --shell /bin/bash --create-home fourcast
 
