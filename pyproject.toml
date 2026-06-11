@@ -38,6 +38,9 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["collector"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
