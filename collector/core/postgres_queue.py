@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -75,7 +76,7 @@ class PostgresJobQueue:
                     self.claimant,
                     row["id"],
                 )
-                payload = dict(updated["payload"])
+                payload = _coerce_payload(updated["payload"])
                 payload.setdefault("db_job_id", str(updated["id"]))
                 return ClaimedPostgresJob(db_job_id=str(updated["id"]), payload=payload)
 
@@ -164,6 +165,19 @@ class PostgresJobQueue:
                 self.claimant,
                 status,
             )
+
+
+def _coerce_payload(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("job payload must be a JSON object")
+        return parsed
+    raise TypeError(f"unsupported job payload type: {type(raw).__name__}")
 
 
 def _normalize_asyncpg_url(database_url: str) -> str:
