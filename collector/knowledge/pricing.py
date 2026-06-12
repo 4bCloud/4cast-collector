@@ -117,10 +117,18 @@ class AWSPricingEngine:
             for pstr in page.get("PriceList", []):
                 item = json.loads(pstr)
                 attrs = item.get("product", {}).get("attributes", {})
-                itype = attrs.get("instanceType")
-                if itypes and itype not in itypes: continue
+                itype = str(attrs.get("instanceType") or "").strip()
+                if not itype or "metal" in itype:
+                    continue
+                if itypes and itype not in itypes:
+                    continue
                 price = self._parse_price(item)
-                if price: data[itype] = {"price_per_hour": price, "vcpu": attrs.get("vcpu"), "memory_gb": attrs.get("memory")}
+                if price:
+                    data[itype] = {
+                        "price_per_hour": price,
+                        "vcpu": attrs.get("vcpu"),
+                        "memory_gb": attrs.get("memory"),
+                    }
         return data
 
     async def _fetch_rds(self, region):
@@ -139,9 +147,14 @@ class AWSPricingEngine:
         for page in self._client.get_paginator("get_products").paginate(ServiceCode="AmazonRDS", Filters=filters):
             for pstr in page.get("PriceList", []):
                 item = json.loads(pstr)
-                itype = item.get("product", {}).get("attributes", {}).get("instanceType")
+                itype = str(
+                    item.get("product", {}).get("attributes", {}).get("instanceType") or ""
+                ).strip()
+                if not itype:
+                    continue
                 price = self._parse_price(item)
-                if price: data[itype] = {"price_per_hour": price}
+                if price:
+                    data[itype] = {"price_per_hour": price}
         return data
 
     def _parse_price(self, item):

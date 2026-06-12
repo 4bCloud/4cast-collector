@@ -19,12 +19,30 @@ from collector.core.result_submit import ResultSubmitter
 from collector.core.health import serve_health
 from collector.store.evidence import write_local_evidence, write_evidence_artifact
 from collector.auth.assume_role import AssumeRoleAuth
-from collector.knowledge.pricing import AWSPricingEngine
 from collector.analyzer.cost_attribution import build_cost_attribution
 from collector.analyzer.pricing_coverage import build_pricing_coverage_audit
+from collector.knowledge.pricing import AWSPricingEngine
 
 console = Console()
 log = logging.getLogger(__name__)
+
+
+def _pricing_session_from_accounts(accounts: list[dict]):
+    """Use assumed customer-role credentials for Pricing API (us-east-1)."""
+    import boto3
+
+    for account in accounts:
+        access_key = account.get("access_key_id")
+        secret_key = account.get("secret_access_key")
+        session_token = account.get("session_token")
+        if access_key and secret_key and session_token:
+            return boto3.Session(
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                aws_session_token=session_token,
+                region_name="us-east-1",
+            )
+    return None
 
 class CollectorWorker:
     def __init__(self):
@@ -125,9 +143,6 @@ class CollectorWorker:
             auth_engine = AssumeRoleAuth(
                 role_arn=aws_auth.get("role_arn", ""),
                 external_id=aws_auth.get("external_id", ""),
-                aws_access_key_id=auth_info.get("access_key_id", ""),
-                aws_secret_access_key=auth_info.get("secret_access_key", ""),
-                aws_session_token=auth_info.get("session_token", ""),
             )
             accounts = await auth_engine.get_accounts()
             if not accounts:
@@ -142,17 +157,15 @@ class CollectorWorker:
             collection = await orchestrator.run()
 
             await self._publish_progress(job, job_id, "running", message="Fetching AWS pricing...")
-            import boto3
-
-            pricing_session = boto3.Session(
-                aws_access_key_id=auth_info.get("access_key_id", ""),
-                aws_secret_access_key=auth_info.get("secret_access_key", ""),
-                aws_session_token=auth_info.get("session_token", ""),
-                region_name="us-east-1",
-            )
-            pricing_engine = AWSPricingEngine(session=pricing_session)
-            pricing = await pricing_engine.fetch_for_collection(collection)
-            collection["aws_pricing"] = pricing
+            pricing_session = _pricing_session_from_accounts(accounts)
+            if pricing_session is None:
+                log.warning(
+                    "No assumed-role credentials available for pricing — evidence will lack aws_pricing"
+                )
+                collection["aws_pricing"] = {}
+            else:
+                pricing_engine = AWSPricingEngine(session=pricing_session)
+                collection["aws_pricing"] = await pricing_engine.fetch_for_collection(collection)
 
             await self._publish_progress(job, job_id, "running", message="Building cost attribution...")
             collection["cost_attribution"] = build_cost_attribution(collection)
