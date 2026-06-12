@@ -142,7 +142,15 @@ class CollectorWorker:
             collection = await orchestrator.run()
 
             await self._publish_progress(job, job_id, "running", message="Fetching AWS pricing...")
-            pricing_engine = AWSPricingEngine()
+            import boto3
+
+            pricing_session = boto3.Session(
+                aws_access_key_id=auth_info.get("access_key_id", ""),
+                aws_secret_access_key=auth_info.get("secret_access_key", ""),
+                aws_session_token=auth_info.get("session_token", ""),
+                region_name="us-east-1",
+            )
+            pricing_engine = AWSPricingEngine(session=pricing_session)
             pricing = await pricing_engine.fetch_for_collection(collection)
             collection["aws_pricing"] = pricing
 

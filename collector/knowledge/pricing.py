@@ -106,7 +106,9 @@ class AWSPricingEngine:
         try:
             data = await asyncio.to_thread(self._get_ec2, region, loc, itypes)
             return {"_service": "ec2", "_region": region, "data": data}
-        except Exception: return None
+        except Exception as exc:
+            log.warning("EC2 pricing fetch failed for %s: %s", region, exc)
+            return None
 
     def _get_ec2(self, region, location, itypes):
         filters = [{"Type": "TERM_MATCH", "Field": "regionCode", "Value": region}, {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": "Linux"}, {"Type": "TERM_MATCH", "Field": "tenancy", "Value": "Shared"}]
@@ -127,7 +129,9 @@ class AWSPricingEngine:
         try:
             data = await asyncio.to_thread(self._get_rds, region)
             return {"_service": "rds", "_region": region, "data": data}
-        except Exception: return None
+        except Exception as exc:
+            log.warning("RDS pricing fetch failed for %s: %s", region, exc)
+            return None
 
     def _get_rds(self, region):
         filters = [{"Type": "TERM_MATCH", "Field": "regionCode", "Value": region}, {"Type": "TERM_MATCH", "Field": "databaseEngine", "Value": "MySQL"}]
