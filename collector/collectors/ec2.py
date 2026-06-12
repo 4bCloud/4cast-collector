@@ -608,7 +608,8 @@ class EC2Collector(BaseCollector):
                 ),
                 "disk": bool(cwagent_metrics.get("disk_used", {}).get("datapoints", 0)),
             },
-            # Filled later by runner.py when Grafana enrichment is enabled.
+            # Placeholder only. Grafana host metrics are filled during analyze.finops
+            # by 4cast-agent-finops (Runner._enrich_with_grafana), not during collect.
             "external_observability": {
                 "grafana": {
                     "available": False,
