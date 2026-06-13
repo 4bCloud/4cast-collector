@@ -14,7 +14,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install dependencies
 COPY pyproject.toml README.md ./
 COPY collector/ ./collector/
-RUN --mount=type=ssh pip install --upgrade pip     && pip install .
+RUN --mount=type=ssh,id=github-kelvin pip install --upgrade pip     && pip install .
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime

@@ -5,7 +5,7 @@ extraction from AWS.
 
 **Role in the platform:** owns `stage=collect` only. Writes the evidence lake;
 does not run rules, LLM or reports. See `docs/target-architecture.md` and
-`docs/architecture-improvement-execution-plan.md` (ARCH-037).
+`docs/architecture-backlog.md` and `docs/target-architecture.md` (ARCH-037).
 
 **Relationship with `4cast-agent-finops`:** finops still embeds collectors and can
 claim `collect` until ARCH-037 E2E completes. Target: finops becomes

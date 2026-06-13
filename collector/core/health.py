@@ -4,8 +4,18 @@ import logging
 from typing import Awaitable, Callable
 
 from aiohttp import web
+from aiohttp.web_log import AccessLogger
 
 log = logging.getLogger(__name__)
+
+_QUIET_PROBE_PATHS = frozenset({"/health", "/ready"})
+
+
+class _QuietProbeAccessLogger(AccessLogger):
+    def log(self, request, response, time):  # type: ignore[override]
+        if request.path in _QUIET_PROBE_PATHS:
+            return
+        super().log(request, response, time)
 
 
 async def serve_health(
@@ -26,7 +36,10 @@ async def serve_health(
     app = web.Application()
     app.router.add_get("/health", health)
     app.router.add_get("/ready", ready)
-    runner = web.AppRunner(app)
+    runner = web.AppRunner(
+        app,
+        access_log=_QuietProbeAccessLogger(logging.getLogger("aiohttp.access")),
+    )
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()
